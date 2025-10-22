@@ -14,7 +14,7 @@ TG_API_HASH = os.getenv("TG_API_HASH")
 TG_CHANNEL = os.getenv("TG_CHANNEL")  # numeric id like -1001234567890
 BYBIT_API_KEY = os.getenv("BYBIT_API_KEY")
 BYBIT_API_SECRET = os.getenv("BYBIT_API_SECRET")
-USE_TESTNET = os.getenv("USE_TESTNET", "false").lower() == "false"
+USE_TESTNET = os.getenv("USE_TESTNET", "true").lower() == "true"
 TRADE_PERCENT = float(os.getenv("TRADE_PERCENT", "0.05"))
 DEFAULT_LEVERAGE = int(os.getenv("DEFAULT_LEVERAGE", "20"))
 
