@@ -23,11 +23,14 @@ DEFAULT_LEVERAGE = int(os.getenv("DEFAULT_LEVERAGE", 20))
 TRADE_CATEGORY = "linear"
 
 # ---------------------------------
-# Bybit API Initialization
+# Bybit API Initialization - FIXED
 # ---------------------------------
-api_url = "https://api-testnet.bybit.com" if USE_TESTNET else "https://api.bybit.com"
-
-session = HTTP(api_key=BYBIT_API_KEY, api_secret=BYBIT_API_SECRET, base_url=api_url)
+# Remove base_url parameter - use testnet parameter instead
+session = HTTP(
+    api_key=BYBIT_API_KEY, 
+    api_secret=BYBIT_API_SECRET,
+    testnet=USE_TESTNET  # ✅ Use testnet parameter instead of base_url
+)
 
 # ---------------------------------
 # Bybit Helper Functions
@@ -146,7 +149,7 @@ async def handler(event):
 # Run Bot
 # ---------------------------------
 async def main():
-    print("🤖 Bybit Auto Trader Started (CROSS, MAINNET)") if not USE_TESTNET else print("🧪 TESTNET Mode Enabled")
+    print("🤖 Bybit Auto Trader Started (CROSS, TESTNET)") if USE_TESTNET else print("🤖 Bybit Auto Trader Started (CROSS, MAINNET)")
     await client.start()
     await client.run_until_disconnected()
 
