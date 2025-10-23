@@ -13,6 +13,7 @@ load_dotenv()
 TG_API_ID = int(os.getenv("TG_API_ID"))
 TG_API_HASH = os.getenv("TG_API_HASH")
 TG_CHANNEL = int(os.getenv("TG_CHANNEL"))
+TG_BOT_TOKEN = os.getenv("TG_BOT_TOKEN", None)
 
 BYBIT_API_KEY = os.getenv("BYBIT_API_KEY")
 BYBIT_API_SECRET = os.getenv("BYBIT_API_SECRET")
@@ -23,19 +24,19 @@ DEFAULT_LEVERAGE = int(os.getenv("DEFAULT_LEVERAGE", 20))
 TRADE_CATEGORY = "linear"
 
 # ---------------------------------
-# Bybit API Initialization - FIXED
+# Bybit API Initialization
 # ---------------------------------
-# Remove base_url parameter - use testnet parameter instead
 session = HTTP(
     api_key=BYBIT_API_KEY, 
     api_secret=BYBIT_API_SECRET,
-    testnet=USE_TESTNET  # ✅ Use testnet parameter instead of base_url
+    testnet=USE_TESTNET
 )
 
 # ---------------------------------
 # Bybit Helper Functions
 # ---------------------------------
 def get_balance():
+    """Get current wallet balance"""
     try:
         res = session.get_wallet_balance(accountType="UNIFIED")
         balance = float(res["result"]["list"][0]["totalEquity"])
@@ -46,14 +47,20 @@ def get_balance():
 
 
 def set_cross_margin(symbol: str):
+    """Set cross margin mode for symbol"""
     try:
-        session.switch_margin_mode(category=TRADE_CATEGORY, symbol=symbol, tradeMode=0)  # 0 = Cross
+        session.switch_margin_mode(
+            category=TRADE_CATEGORY, 
+            symbol=symbol, 
+            tradeMode=0
+        )
         print(f"✅ Cross margin set for {symbol}")
     except Exception as e:
         print("⚠️ Failed to set cross margin:", e)
 
 
 def set_leverage(symbol: str, leverage: int):
+    """Set leverage for symbol"""
     try:
         session.set_leverage(
             category=TRADE_CATEGORY,
@@ -61,28 +68,41 @@ def set_leverage(symbol: str, leverage: int):
             buyLeverage=leverage,
             sellLeverage=leverage
         )
-        print(f"✅ Leverage set to {leverage}x")
+        print(f"✅ Leverage set to {leverage}x for {symbol}")
     except Exception as e:
         print("⚠️ Failed to set leverage:", e)
 
 
 def get_market_price(symbol: str):
+    """Get current market price for symbol"""
     try:
-        ticker = session.get_tickers(category=TRADE_CATEGORY, symbol=symbol)
-        return float(ticker["result"]["list"][0]["lastPrice"])
+        ticker = session.get_tickers(
+            category=TRADE_CATEGORY, 
+            symbol=symbol
+        )
+        price = float(ticker["result"]["list"][0]["lastPrice"])
+        return price
     except Exception as e:
-        print("❌ Error fetching price:", e)
+        print("❌ Error fetching price for", symbol, ":", e)
         return None
 
 
-def calculate_order_qty(symbol: str, balance: float, percent: float, price: float):
+def calculate_order_qty(balance: float, percent: float, price: float):
+    """Calculate order quantity based on balance and percentage"""
+    if price <= 0:
+        return 0
     trade_value = balance * percent
     qty = trade_value / price
     return round(qty, 3)
 
 
 def place_market_order(symbol: str, side: str, qty: float):
+    """Place market order on Bybit"""
     try:
+        if qty <= 0:
+            print(f"⚠️ Invalid quantity: {qty}")
+            return None
+        
         resp = session.place_order(
             category=TRADE_CATEGORY,
             symbol=symbol,
@@ -93,6 +113,7 @@ def place_market_order(symbol: str, side: str, qty: float):
             reduceOnly=False
         )
         print(f"✅ Market order placed: {side} {qty} {symbol}")
+        print(f"   Response: {resp}")
         return resp
     except Exception as e:
         print("❌ Failed to place order:", e)
@@ -104,54 +125,149 @@ def place_market_order(symbol: str, side: str, qty: float):
 # ---------------------------------
 client = TelegramClient("bybit_auto_trade", TG_API_ID, TG_API_HASH)
 
+
+async def start_client():
+    """Start Telegram client with session or bot token"""
+    try:
+        # Try to connect with existing session
+        await client.connect()
+        if await client.is_user_authorized():
+            print("✅ Connected with existing session file")
+            return
+        else:
+            print("⚠️ Session file exists but not authorized")
+    except Exception as e:
+        print(f"⚠️ Could not use session file: {e}")
+    
+    # Try bot token
+    if TG_BOT_TOKEN:
+        try:
+            await client.start(bot_token=TG_BOT_TOKEN)
+            print("✅ Connected with Bot Token")
+            return
+        except Exception as e:
+            print(f"❌ Bot token authentication failed: {e}")
+            raise
+    else:
+        # Interactive login for local development
+        try:
+            await client.start()
+            print("✅ Connected with interactive login (Phone/Bot token)")
+            return
+        except EOFError:
+            print("\n" + "="*60)
+            print("❌ AUTHENTICATION ERROR")
+            print("="*60)
+            print("No session file found and no bot token provided.")
+            print("\n📌 SOLUTION - Choose one:")
+            print("\n1️⃣  LOCAL DEVELOPMENT (Recommended):")
+            print("   - Run: python main.py")
+            print("   - Enter phone number when prompted")
+            print("   - Verify OTP")
+            print("   - Session file will be created")
+            print("   - Commit session file to git")
+            print("\n2️⃣  RAILWAY DEPLOYMENT:")
+            print("   - Create bot token via @BotFather on Telegram")
+            print("   - Add TG_BOT_TOKEN to Railway env vars")
+            print("   - Deploy")
+            print("="*60 + "\n")
+            raise
+
+
 # ---------------------------------
 # Message Handler
 # ---------------------------------
 @client.on(events.NewMessage(chats=TG_CHANNEL))
 async def handler(event):
+    """Handle incoming Telegram messages"""
     msg = event.raw_text
-    print(f"\n📩 New Message: {msg}")
+    print(f"\n{'='*60}")
+    print(f"📩 New Message: {msg}")
+    print('='*60)
 
-    # Detect signal direction
+    # Detect signal direction (LONG/BUY or SHORT/SELL)
     if re.search(r"\b(long|buy)\b", msg, re.IGNORECASE):
         side = "Buy"
     elif re.search(r"\b(short|sell)\b", msg, re.IGNORECASE):
         side = "Sell"
     else:
-        print("⚠️ No valid signal side found.")
+        print("⚠️ No valid signal side found (looking for: long/buy or short/sell)")
         return
 
-    # Extract symbol dynamically (any token ending with USDT)
+    # Extract symbol (e.g., BTCUSDT, ETHUSDT)
     match = re.search(r"\b([A-Z0-9]+USDT)\b", msg.upper())
     if not match:
-        print("⚠️ No valid symbol found in message.")
+        print("⚠️ No valid symbol found (looking for: xxxUSDT format)")
         return
 
     symbol = match.group(1).upper()
-    print(f"🚀 Signal detected → {symbol} | {side}")
+    print(f"🚀 Signal detected: {symbol} | Side: {side}")
 
-    # Execute trade
+    # Get balance
     balance = get_balance()
-    price = get_market_price(symbol)
-    if not price:
-        print("⚠️ Could not fetch price.")
+    if balance <= 0:
+        print(f"❌ Insufficient balance: {balance}")
         return
+    
+    print(f"💰 Current balance: {balance:.2f} USDT")
 
+    # Get current price
+    price = get_market_price(symbol)
+    if not price or price <= 0:
+        print(f"❌ Could not fetch valid price for {symbol}")
+        return
+    
+    print(f"📊 Current price: {price} USDT")
+
+    # Set margin and leverage
+    print(f"⚙️  Setting trading parameters...")
     set_cross_margin(symbol)
     set_leverage(symbol, DEFAULT_LEVERAGE)
 
-    qty = calculate_order_qty(symbol, balance, TRADE_PERCENT, price)
-    print(f"💰 Balance: {balance:.2f} | Qty: {qty} | Price: {price}")
+    # Calculate order quantity
+    qty = calculate_order_qty(balance, TRADE_PERCENT, price)
+    if qty <= 0:
+        print(f"❌ Invalid quantity calculated: {qty}")
+        return
+    
+    print(f"📈 Trade details:")
+    print(f"   - Quantity: {qty}")
+    print(f"   - Trade amount: {qty * price:.2f} USDT")
+    print(f"   - Leverage: {DEFAULT_LEVERAGE}x")
 
+    # Place the order
+    print(f"\n🔄 Placing {side} order...")
     place_market_order(symbol, side, qty)
+    print('='*60 + "\n")
+
 
 # ---------------------------------
-# Run Bot
+# Main Function
 # ---------------------------------
 async def main():
-    print("🤖 Bybit Auto Trader Started (CROSS, TESTNET)") if USE_TESTNET else print("🤖 Bybit Auto Trader Started (CROSS, MAINNET)")
-    await client.start()
-    await client.run_until_disconnected()
+    """Main bot function"""
+    mode = "🧪 TESTNET" if USE_TESTNET else "💰 MAINNET"
+    print(f"\n{'='*60}")
+    print(f"🤖 Bybit Auto Trading Bot")
+    print(f"   Mode: {mode}")
+    print(f"   Leverage: {DEFAULT_LEVERAGE}x")
+    print(f"   Trade Size: {TRADE_PERCENT*100}% of balance")
+    print(f"   Channel ID: {TG_CHANNEL}")
+    print('='*60 + "\n")
+    
+    try:
+        await start_client()
+        print("👂 Listening for trading signals...\n")
+        await client.run_until_disconnected()
+    except KeyboardInterrupt:
+        print("\n⛔ Bot stopped by user")
+    except Exception as e:
+        print(f"\n❌ Fatal error: {e}")
+        raise
 
+
+# ---------------------------------
+# Entry Point
+# ---------------------------------
 if __name__ == "__main__":
     asyncio.run(main())
