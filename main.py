@@ -27,13 +27,13 @@ TRADE_CATEGORY = "linear"
 # Bybit API Initialization
 # ---------------------------------
 session = HTTP(
-    api_key=BYBIT_API_KEY, 
+    api_key=BYBIT_API_KEY,
     api_secret=BYBIT_API_SECRET,
     testnet=USE_TESTNET
 )
 
 # ---------------------------------
-# Bybit Helper Functions
+# Helper Functions
 # ---------------------------------
 def get_balance():
     """Get current wallet balance"""
@@ -50,8 +50,8 @@ def set_cross_margin(symbol: str):
     """Set cross margin mode for symbol"""
     try:
         session.switch_margin_mode(
-            category=TRADE_CATEGORY, 
-            symbol=symbol, 
+            category=TRADE_CATEGORY,
+            symbol=symbol,
             tradeMode=0
         )
         print(f"✅ Cross margin set for {symbol}")
@@ -77,7 +77,7 @@ def get_market_price(symbol: str):
     """Get current market price for symbol"""
     try:
         ticker = session.get_tickers(
-            category=TRADE_CATEGORY, 
+            category=TRADE_CATEGORY,
             symbol=symbol
         )
         price = float(ticker["result"]["list"][0]["lastPrice"])
@@ -102,7 +102,7 @@ def place_market_order(symbol: str, side: str, qty: float):
         if qty <= 0:
             print(f"⚠️ Invalid quantity: {qty}")
             return None
-        
+
         resp = session.place_order(
             category=TRADE_CATEGORY,
             symbol=symbol,
@@ -129,7 +129,6 @@ client = TelegramClient("bybit_auto_trade", TG_API_ID, TG_API_HASH)
 async def start_client():
     """Start Telegram client with session or bot token"""
     try:
-        # Try to connect with existing session
         await client.connect()
         if await client.is_user_authorized():
             print("✅ Connected with existing session file")
@@ -138,8 +137,7 @@ async def start_client():
             print("⚠️ Session file exists but not authorized")
     except Exception as e:
         print(f"⚠️ Could not use session file: {e}")
-    
-    # Try bot token
+
     if TG_BOT_TOKEN:
         try:
             await client.start(bot_token=TG_BOT_TOKEN)
@@ -149,28 +147,26 @@ async def start_client():
             print(f"❌ Bot token authentication failed: {e}")
             raise
     else:
-        # Interactive login for local development
         try:
             await client.start()
             print("✅ Connected with interactive login (Phone/Bot token)")
             return
         except EOFError:
-            print("\n" + "="*60)
+            print("\n" + "=" * 60)
             print("❌ AUTHENTICATION ERROR")
-            print("="*60)
+            print("=" * 60)
             print("No session file found and no bot token provided.")
             print("\n📌 SOLUTION - Choose one:")
-            print("\n1️⃣  LOCAL DEVELOPMENT (Recommended):")
+            print("\n1️⃣ LOCAL DEVELOPMENT (Recommended):")
             print("   - Run: python main.py")
             print("   - Enter phone number when prompted")
             print("   - Verify OTP")
             print("   - Session file will be created")
-            print("   - Commit session file to git")
-            print("\n2️⃣  RAILWAY DEPLOYMENT:")
+            print("\n2️⃣ RAILWAY DEPLOYMENT:")
             print("   - Create bot token via @BotFather on Telegram")
             print("   - Add TG_BOT_TOKEN to Railway env vars")
             print("   - Deploy")
-            print("="*60 + "\n")
+            print("=" * 60 + "\n")
             raise
 
 
@@ -181,11 +177,11 @@ async def start_client():
 async def handler(event):
     """Handle incoming Telegram messages"""
     msg = event.raw_text
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"📩 New Message: {msg}")
-    print('='*60)
+    print('=' * 60)
 
-    # Detect signal direction (LONG/BUY or SHORT/SELL)
+    # Detect trade direction
     if re.search(r"\b(long|buy)\b", msg, re.IGNORECASE):
         side = "Buy"
     elif re.search(r"\b(short|sell)\b", msg, re.IGNORECASE):
@@ -194,13 +190,13 @@ async def handler(event):
         print("⚠️ No valid signal side found (looking for: long/buy or short/sell)")
         return
 
-    # Extract symbol (e.g., BTCUSDT, ETHUSDT)
-    match = re.search(r"\b([A-Z0-9]+USDT)\b", msg.upper())
+    # Improved regex to detect symbols like #LIGHT/USDT, LIGHT-USDT, LIGHTUSDT
+    match = re.search(r"#?([A-Z0-9]+)[-/]?USDT", msg.upper())
     if not match:
         print("⚠️ No valid symbol found (looking for: xxxUSDT format)")
         return
 
-    symbol = match.group(1).upper()
+    symbol = f"{match.group(1).upper()}USDT"
     print(f"🚀 Signal detected: {symbol} | Side: {side}")
 
     # Get balance
@@ -208,15 +204,15 @@ async def handler(event):
     if balance <= 0:
         print(f"❌ Insufficient balance: {balance}")
         return
-    
+
     print(f"💰 Current balance: {balance:.2f} USDT")
 
-    # Get current price
+    # Get market price
     price = get_market_price(symbol)
     if not price or price <= 0:
         print(f"❌ Could not fetch valid price for {symbol}")
         return
-    
+
     print(f"📊 Current price: {price} USDT")
 
     # Set margin and leverage
@@ -229,7 +225,7 @@ async def handler(event):
     if qty <= 0:
         print(f"❌ Invalid quantity calculated: {qty}")
         return
-    
+
     print(f"📈 Trade details:")
     print(f"   - Quantity: {qty}")
     print(f"   - Trade amount: {qty * price:.2f} USDT")
@@ -238,7 +234,7 @@ async def handler(event):
     # Place the order
     print(f"\n🔄 Placing {side} order...")
     place_market_order(symbol, side, qty)
-    print('='*60 + "\n")
+    print('=' * 60 + "\n")
 
 
 # ---------------------------------
@@ -247,14 +243,14 @@ async def handler(event):
 async def main():
     """Main bot function"""
     mode = "🧪 TESTNET" if USE_TESTNET else "💰 MAINNET"
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"🤖 Bybit Auto Trading Bot")
     print(f"   Mode: {mode}")
     print(f"   Leverage: {DEFAULT_LEVERAGE}x")
-    print(f"   Trade Size: {TRADE_PERCENT*100}% of balance")
+    print(f"   Trade Size: {TRADE_PERCENT * 100}% of balance")
     print(f"   Channel ID: {TG_CHANNEL}")
-    print('='*60 + "\n")
-    
+    print('=' * 60 + "\n")
+
     try:
         await start_client()
         print("👂 Listening for trading signals...\n")
